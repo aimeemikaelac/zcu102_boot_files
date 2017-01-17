@@ -1,0 +1,8 @@
+//arch = zynqmp; split = false; format = BIN
+the_ROM_image:
+{
+	[fsbl_config]a53_x64
+	[bootloader]/home/michael/hardware_security/zcu102/rdf0421-zcu102-base-trd-2016-3/pl/zcu102_base_trd/project/zcu102_base_trd.sdk/fsbl/Debug/fsbl.elf
+	[destination_device = pl]/home/michael/hardware_security/zcu102/rdf0421-zcu102-base-trd-2016-3/pl/zcu102_base_trd/project/zcu102_base_trd.sdk/zcu102_base_trd_wrapper_hw_platform_0/zcu102_base_trd_wrapper.bit
+	[destination_cpu = a53-0]/home/michael/hardware_security/zcu102/u-boot.elf
+}
