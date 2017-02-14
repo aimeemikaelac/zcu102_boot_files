@@ -1,0 +1,4 @@
+Variable
+QSPI Width 			(0x20): 0x665599aa
+Image Identification string	(0x24): 0x584e4c58
+Encryption status		(0x28):
