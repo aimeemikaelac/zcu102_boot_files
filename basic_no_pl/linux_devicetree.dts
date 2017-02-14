@@ -1755,7 +1755,7 @@
 	};
 
 	chosen {
-		bootargs = "earlycon";
+		bootargs = "earlycon earlyprintk consoleblank=0 cma=384M";
 		stdout-path = "serial0:115200n8";
 	};
 
