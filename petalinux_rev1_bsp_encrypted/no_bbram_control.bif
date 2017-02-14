@@ -1,0 +1,7 @@
+the_ROM_image:
+{
+[fsbl_config] a53_x64
+[bootloader] zynqmp_fsbl.elf
+[destination_device=ps, destination_cpu=a53-0] bl31.elf
+[destination_device=ps, destination_cpu=a53-0] u-boot.elf
+}

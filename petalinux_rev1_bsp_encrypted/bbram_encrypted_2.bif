@@ -1,0 +1,12 @@
+the_ROM_image:
+{
+[aeskeyfile] test_keys/vncbbram1709_2.nky
+[fsbl_config] a53_x64, bh_auth_enable
+[keysrc_encryption] bbram_red_key
+[auth_params] ppk_select=0; spk_id=0x00000000
+[pskfile] test_keys/hello_0_SHA3_PSK.pem
+[sskfile] test_keys/hello_0_SHA3_SSK.pem
+[bootloader, authentication=rsa, encryption=aes] zynqmp_fsbl.elf
+[destination_device=ps, destination_cpu=a53-0, authentication=rsa, encryption=aes] bl31.elf
+[destination_device=ps, destination_cpu=a53-0, authentication=rsa, encryption=aes] u-boot.elf
+}
