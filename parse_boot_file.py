@@ -402,6 +402,31 @@ def decrypt_secure_header(boot_file_array, partition_number=0):
     pt = decryptor.update(bytes(bytearray(secure_header_data))) + decryptor.finalize()
     print hex(pt)
 
+def encrypt_from_data(boot_file_array, data_array, outfile="encrypted.out"):
+    header_iv = get_secure_header_iv(boot_file_array)
+    backend = default_backend()
+    key = bytearray.fromhex(b'AD00C023E238AC9039EA984D49AA8C819456A98C124AE890ACEF002100128932')
+    iv = bytes(bytearray(header_iv))
+    print "IV: 0x",
+    for i in range(len(header_iv)):
+        print "{:02X}".format(header_iv[i]),
+    print ""
+    cipher = Cipher(algorithms.AES(bytes(key)), modes.GCM(iv), backend=backend)
+    encryptor = cipher.encryptor()
+    array_data = array.array('B')
+    # for i in range(source_length/4):
+    #     current_word = array.array('B')
+    #     for byte in range(4):
+    #         current_word.append(boot_file_array[source_offset + i*4 + byte])
+    #     current_word.byteswap()
+    #     array_data.extend(current_word)
+    ct = encryptor.update(data_array.tostring()) + encryptor.finalize()
+    print type(encryptor.tag)
+    with open(outfile, 'w') as outfile_handle:
+        outfile_handle.write(ct)
+    print "GCM auth tag: 0x{}\n".format(binascii.hexlify(encryptor.tag))
+    return ct, encryptor.tag
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -434,6 +459,9 @@ if __name__ == "__main__":
     parser.add_argument("--decrypt_secure_header",
                         type=int,
                         help="Decrypt this partiton secure header")
+    parser.add_argument("--encrypt_file",
+                        help="Encrypt the data in this file and show the "
+                        "resulting ct and GCM tag")
     args = parser.parse_args()
 
     if not os.path.exists(args.boot_file):
@@ -462,9 +490,25 @@ if __name__ == "__main__":
     if args.print_partition_headers:
         print_partition_headers(file_array)
 
-    if "decrypt_secure_header" in args:
+    if args.decrypt_secure_header is not None:
+        print "test"
         decrypt_secure_header(file_array,
                               partition_number=args.decrypt_secure_header)
+
+    if args.encrypt_file is not None:
+        file_ok = True
+        if not os.path.exists(args.encrypt_file):
+            print "File to encrypt does not exist or is inaccessible"
+            file_ok = False
+
+        if not os.path.isfile(args.encrypt_file):
+            print "Path to file to encrypt is not a file"
+            file_ok = False
+
+        if file_ok:
+            file_data_to_encrypt = load_file_into_array(args.encrypt_file)
+            pt, tag = encrypt_from_data(file_array, file_data_to_encrypt)
+
 
     if args.encrypt_fsbl:
         encrypt_fsbl(file_array)
