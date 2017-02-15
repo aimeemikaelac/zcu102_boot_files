@@ -52,11 +52,10 @@ IMAGE_HEADER_OFFSET = 0x8C0
 IMAGE_HEADER_FIELD_LIST = [
     "Version",
     "Image Count",
-    ""First Partition Word Offset"",
+    "First Partition Word Offset",
     "First Image Header Offset",
-                        first_partition_offset,
-                        first_partition_width
-    "Boot Device"base_address=IMAGE_HEADER_OFFSET,
+    "Header Authentication Word Offset",
+    "Boot Device",
     "Reserved",
     "Checksum"
 ]
@@ -71,6 +70,49 @@ IMAGE_HEADER_MAP = {
     "Reserved":                             (0x18, 0x20),
     "Checksum":                             (0x3C, 0x4)
 }
+
+PARTITION_HEADER_FIELD_LIST = [
+    "Partition Data Word Length",
+    "Extracted Data Word Length",
+    "Total Partition Word Length",
+    "Next Partition Word Offset",
+    "Destination Execution Address LO",
+    "Destination Execution Address HI",
+    "Destination Load Address LO",
+    "Destination Load Address HI",
+    "Actual Partion Word Offset",
+    "Attributes",
+    "Reserved",
+    "Checksum Word Offset",
+    "Reserved",
+    "Authentication Certificate Word Offset",
+    "unused",
+    "Header Checksum"
+]
+
+PARTITION_HEADER_MAP = {
+    "Partition Data Word Length":               (0x00, 0x4),
+    "Extracted Data Word Length":               (0x04, 0x4),
+    "Total Partition Word Length":              (0x08, 0x4),
+    "Next Partition Word Offset":               (0x0C, 0x4),
+    "Destination Execution Address LO":         (0x10, 0x4),
+    "Destination Execution Address HI":         (0x14, 0x4),
+    "Destination Load Address LO":              (0x18, 0x4),
+    "Destination Load Address HI":              (0x1C, 0x4),
+    "Actual Partion Word Offset":               (0x20, 0x4),
+    "Attributes":                               (0x24, 0x4),
+    "Reserved":                                 (0x28, 0x4),
+    "Checksum Word Offset":                     (0x2C, 0x4),
+    "Reserved":                                 (0x30, 0x4),
+    "Authentication Certificate Word Offset":   (0x34, 0x4),
+    "unused":                                   (0x38, 0x4),
+    "Header Checksum":                          (0x3C, 0x4)
+}
+
+SECURE_HEADER_OFFSET = 0x400
+SECURE_HEADER_TAG_WIDTH = 0x10
+BLOCK_0_KEY_WIDTH = 0x20
+BLOCK_0_IV = 0x10
 
 def load_file_into_array(file_path):
     file_array = array.array('B')
@@ -212,17 +254,153 @@ def parse_image_table(boot_file_array, print_reserved=False):
 
 def get_first_partition_offsets(boot_file_array):
     #get partition header location
-    first_partition, = IMAGE_HEADER_MAP["First Partition Word Offset"]
+    first_partition, first_partition_width = IMAGE_HEADER_MAP["First Partition Word Offset"]
     first_partition_word_offset = word_to_int(boot_file_array,
                                               IMAGE_HEADER_OFFSET + first_partition)
     first_partition_offset = first_partition_word_offset*4
     #get image header location
-    first_image, = IMAGE_HEADER_MAP["First Image Header Offset"]
+    first_image, first_image_width = IMAGE_HEADER_MAP["First Image Header Offset"]
     first_image_word_offset = word_to_int(boot_file_array,
                                           IMAGE_HEADER_OFFSET + first_image)
     first_image_offset = first_image_word_offset*4
 
-    return first_partition_offset, first_image_offset
+    image_count_offset, image_count_width = IMAGE_HEADER_MAP["Image Count"]
+    image_count = word_to_int(boot_file_array,
+                              IMAGE_HEADER_OFFSET + image_count_offset)
+
+    return first_partition_offset, first_image_offset, image_count
+
+def print_image_headers(boot_file_array):
+    first_partition_offset, first_image_offset, image_count = get_first_partition_offsets(boot_file_array)
+    last_image_header_found = False
+    current_image_header = first_image_offset
+    image_header_count = 0
+    while not last_image_header_found:
+        next_image_header = word_to_int(boot_file_array,
+                                        current_image_header)*4
+        if next_image_header == 0:
+            last_image_header_found = True
+        last_word_found = False
+        current_offset = current_image_header
+        print "Image Header {}".format(image_header_count)
+        current_image_bytes = 0
+        while not last_word_found:
+            word_str = "Unknown word: 0x"
+            if current_offset == current_image_header:
+                word_str = "Next image header offset: 0x"
+            elif current_offset == current_image_header + 4:
+                word_str = "Partition offset: 0x"
+            barrier_value_encountered = 0
+            for i in reversed(range(current_offset, current_offset+4)):
+                word_str = word_str + "{:02X}".format(boot_file_array[i])
+                if boot_file_array[i] == 0xFF:
+                    barrier_value_encountered = barrier_value_encountered + 1
+            if barrier_value_encountered == 4:
+                last_word_found = True
+                break
+            current_image_bytes = current_image_bytes + 4
+            print word_str
+            current_offset = current_offset + 4
+        print "Number of bytes in image: {}\n".format(current_image_bytes)
+        current_image_header = next_image_header
+        image_header_count = image_header_count + 1
+
+def print_partition_headers(boot_file_array, print_headers=True):
+    first_partition_offset, first_image_offset, image_count = get_first_partition_offsets(boot_file_array)
+    current_partition_base = first_partition_offset
+    partition_locations = []
+    for i in range(image_count):
+        if current_partition_base < 0:
+            if print_headers:
+                print "Partition offset for partition {} not found".format(i)
+            break
+        if print_headers:
+            print "Partition Table {}:".format(i)
+        next_partition_base = -1
+        for field in PARTITION_HEADER_FIELD_LIST:
+            # if field == "Reserved" and not print_reserved:
+            #     continue
+            image_field_offset, image_field_length = PARTITION_HEADER_MAP[field]
+            field_value = read_field_data(boot_file_array,
+                                          image_field_offset,
+                                          image_field_length,
+                                          base_address=current_partition_base)
+            if print_headers:
+                print_field_value(field, field_value)
+            if field == "Next Partition Word Offset":
+                next_partition_base = word_to_int(boot_file_array,
+                                                  current_partition_base + image_field_offset)*4
+            if field == "Actual Partion Word Offset":
+                actual_offset = word_to_int(boot_file_array,
+                                            current_partition_base + image_field_offset)*4
+                partition_locations.append(actual_offset)
+        print ""
+        current_partition_base = next_partition_base
+    return partition_locations
+
+def get_secure_header_iv(boot_file_array):
+    secure_iv_offset, secure_iv_width = BOOT_HEADER_MAP["Secure Header IV"]
+    # print hex(secure_iv_offset)
+    # print hex(secure_iv_width)
+    secure_header_iv = array.array('B')
+    for tag_word in range(secure_iv_offset, secure_iv_offset + secure_iv_width, 0x4):
+        # for i in reversed(range(tag_word, tag_word + 4)):
+        for i in range(tag_word, tag_word + 4):
+            secure_header_iv.append(boot_file_array[i])
+    return secure_header_iv
+
+def decrypt_secure_header(boot_file_array, partition_number=0):
+    partition_locations = print_partition_headers(boot_file_array, print_headers=False)
+    partion_data_offset = partition_locations[partition_number]
+    #secure header comes before data
+    secure_header_offset = partion_data_offset - SECURE_HEADER_OFFSET
+    secure_header_tag = array.array('B')
+    secure_header_tag_offset = partion_data_offset - SECURE_HEADER_TAG_WIDTH
+    for tag_word in range(secure_header_tag_offset, secure_header_tag_offset + SECURE_HEADER_TAG_WIDTH, 0x4):
+        # for i in reversed(range(tag_word, tag_word + 4)):
+        for i in range(tag_word, tag_word + 4):
+            secure_header_tag.append(boot_file_array[i])
+    secure_header_data = array.array('B')
+    for header_word in range(secure_header_offset, secure_header_tag_offset, 0x4):
+        # for i in reversed(range(header_word, header_word + 4)):
+        for i in range(header_word, header_word + 4):
+            secure_header_data.append(boot_file_array[i])
+
+
+    secure_header_iv = get_secure_header_iv(boot_file_array)
+    backend = default_backend()
+    key = bytearray.fromhex(b'AD00C023E238AC9039EA984D49AA8C819456A98C124AE890ACEF002100128932')
+    print "Key: 0x",
+    for i in range(len(key)):
+        print "{:02X}".format(key[i]),
+    print ""
+    # iv = secure_header_iv.tostring()
+    iv = bytes(bytearray(secure_header_iv))
+    print "IV: 0x",
+    for i in range(len(secure_header_iv)):
+        print "{:02X}".format(secure_header_iv[i]),
+    print ""
+    # print secure_header_iv
+    # print "IV: {}".format(iv)
+    # tag = secure_header_tag.tostring()
+    tag = bytes(bytearray(secure_header_tag))
+    print "Tag: 0x",
+    for i in range(len(secure_header_tag)):
+        print "{:02X}".format(secure_header_tag[i]),
+    print ""
+    # print "Tag: {}".format(tag)
+    cipher = Cipher(algorithms.AES(bytes(key)), modes.GCM(iv, tag), backend=backend)
+    decryptor = cipher.decryptor()
+    # array_data = array.array('B')
+    # for i in range(source_length/4):
+    #     current_word = get_word_at_address(boot_file_array, source_offset + i*4)
+    #     # current_word = array.array('B')
+    #     # for byte in range(4):
+    #     #     current_word.append(boot_file_array[source_offset + i*4 + byte])
+    #     # current_word.byteswap()
+    #     array_data.extend(current_word)
+    pt = decryptor.update(bytes(bytearray(secure_header_data))) + decryptor.finalize()
+    print hex(pt)
 
 
 if __name__ == "__main__":
@@ -247,6 +425,15 @@ if __name__ == "__main__":
                         help="Print the reserved fields in the image table "
                         "when printing the image table",
                         action='store_true')
+    parser.add_argument("--print_image_headers",
+                        help="Print the image headers",
+                        action='store_true')
+    parser.add_argument("--print_partition_headers",
+                        help="Print partition headers",
+                        action='store_true')
+    parser.add_argument("--decrypt_secure_header",
+                        type=int,
+                        help="Decrypt this partiton secure header")
     args = parser.parse_args()
 
     if not os.path.exists(args.boot_file):
@@ -268,6 +455,16 @@ if __name__ == "__main__":
     if args.image_table:
         parse_image_table(file_array,
                           print_reserved=args.print_image_header_reserved)
+
+    if args.print_image_headers:
+        print_image_headers(file_array)
+
+    if args.print_partition_headers:
+        print_partition_headers(file_array)
+
+    if "decrypt_secure_header" in args:
+        decrypt_secure_header(file_array,
+                              partition_number=args.decrypt_secure_header)
 
     if args.encrypt_fsbl:
         encrypt_fsbl(file_array)
